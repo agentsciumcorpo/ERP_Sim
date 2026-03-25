@@ -1,10 +1,11 @@
 """ERP_Sim_Agents — Point d'entree Streamlit."""
 
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 import streamlit as st
 
-load_dotenv()
+load_dotenv(Path(__file__).parent / ".env")
 
 st.set_page_config(
     page_title="ERPsim Agents",

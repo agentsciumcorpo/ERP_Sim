@@ -22,8 +22,9 @@ with col_btn2:
 # --- Charger les donnees et lancer les agents ---
 if refresh:
     import os
+    from pathlib import Path
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(Path(__file__).parent.parent / ".env")
     from src.data_loader import SAPDataLoader
     from src.analytics import compute_real_margins, compute_stock_heatmap, compute_sales_by_region
     from src.agents_v2 import run_all_agents
