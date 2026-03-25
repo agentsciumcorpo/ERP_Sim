@@ -56,8 +56,8 @@ class CalculationResults:
 
 # --- Couts de base (a terme, vient du OData) ---
 BASE_COSTS = {
-    "Lait": 1.20, "Creme": 2.00, "Yaourt": 1.30,
-    "Fromage": 2.80, "Beurre": 2.20, "Glace": 1.80,
+    "Milk": 15.00, "Cream": 50.00, "Yoghurt": 18.00,
+    "Cheese": 55.00, "Butter": 40.00, "Ice Cream": 28.00,
 }
 STORAGE_COST_PER_UNIT = 0.02
 TRANSPORT_COST_PER_UNIT = 0.05

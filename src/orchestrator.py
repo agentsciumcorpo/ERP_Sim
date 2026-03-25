@@ -47,10 +47,9 @@ class GameState:
             from src.memory import init_memory
             self.memories = init_memory()
         if not self.current_prices:
-            from src.config import PRODUCTS
             self.current_prices = {
-                "Lait": 2.50, "Creme": 3.80, "Yaourt": 2.40,
-                "Fromage": 5.20, "Beurre": 4.10, "Glace": 3.50,
+                "Milk": 24.52, "Cream": 77.60, "Yoghurt": 28.52,
+                "Cheese": 89.15, "Butter": 65.79, "Ice Cream": 47.55,
             }
 
 

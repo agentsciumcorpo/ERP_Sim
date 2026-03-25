@@ -13,52 +13,70 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- Init session state ---
-if "game_state" not in st.session_state:
-    from src.odata_client import MockODataClient
-    from src.orchestrator import GameState
+# --- Init: charger toutes les donnees SAP ---
+if "game_data" not in st.session_state:
+    from src.data_loader import SAPDataLoader
 
-    client = MockODataClient()
-    api_key = os.getenv("OPENROUTER_API_KEY", "")
-
-    st.session_state.game_state = GameState(
-        client=client,
-        use_ai=bool(api_key),
-        api_key=api_key,
-    )
-    st.session_state.last_cycle = None
-    st.session_state.game_over = False
+    sap_url = os.getenv("SAP_BASE_URL", "")
+    if sap_url:
+        loader = SAPDataLoader()
+        if loader.connected:
+            st.session_state.game_data = loader.load_all()
+            st.session_state.connected = True
+        else:
+            st.session_state.game_data = None
+            st.session_state.connected = False
+    else:
+        st.session_state.game_data = None
+        st.session_state.connected = False
 
 # --- Sidebar ---
 st.sidebar.title("ERPsim Agents")
 st.sidebar.markdown("---")
 
-state = st.session_state.game_state
-if state.cycle_results:
-    last = state.cycle_results[-1]
-    st.sidebar.metric("Round", last.round_number)
-    st.sidebar.metric("Phase", last.metrics.game_phase.phase.capitalize())
-    if last.metrics.cash_projection:
-        st.sidebar.metric("Cash", f"{last.metrics.cash_projection.current_cash:,.0f} EUR")
-    st.sidebar.metric("Cycles joues", len(state.cycle_results))
+data = st.session_state.get("game_data")
+if data:
+    st.sidebar.success("Connecte a SAP")
+    st.sidebar.metric("Round actuel", data.current_round)
+    st.sidebar.metric("Step max", data.max_elapsed_step)
+    if len(data.financials) > 0:
+        last_fin = data.financials.iloc[-1]
+        st.sidebar.metric("Cash", f"{last_fin['cash']:,.0f} EUR")
+        st.sidebar.metric("Credit", last_fin["credit"])
+        st.sidebar.metric("Valorisation", f"{last_fin['valuation']:,.0f}")
+    if st.sidebar.button("Rafraichir les donnees"):
+        del st.session_state["game_data"]
+        st.rerun()
 else:
-    st.sidebar.info("Cliquez sur Actualiser dans la vue Superviseur pour demarrer")
-
-st.sidebar.markdown("---")
-mode = "IA" if state.use_ai else "Calculs seuls"
-st.sidebar.caption(f"Mode: {mode} | Modele: {state.api_key[:8]}..." if state.api_key else f"Mode: {mode}")
+    st.sidebar.error("Non connecte a SAP")
+    st.sidebar.caption("Verifiez .env (SAP_BASE_URL, SAP_USERNAME, SAP_PASSWORD)")
 
 # --- Page d'accueil ---
 st.title("ERPsim Decision Support System")
-st.markdown("""
-Bienvenue dans le systeme d'aide a la decision ERPsim.
 
-**Naviguez vers votre vue de role via le menu lateral :**
-- **Pricing** — Recommandations de prix par produit
-- **Approvisionnement** — Stock central et commandes
-- **Distribution** — Transferts vers les regions
-- **Superviseur** — Controle global, Actualiser, Fin de partie
-""")
+if data:
+    from src.analytics import compute_real_margins
 
-if not state.cycle_results:
-    st.info("En attente du premier cycle. Le Superviseur doit cliquer **Actualiser** pour demarrer.")
+    st.markdown("### Vue rapide")
+    col1, col2, col3, col4, col5 = st.columns(5)
+    last = data.financials.iloc[-1]
+    with col1:
+        st.metric("Cash", f"{last['cash']:,.0f}", f"Loan: {last['loan']:,.0f}" if last["loan"] < 0 else None)
+    with col2:
+        st.metric("Profit", f"{last['profit']:,.0f}")
+    with col3:
+        st.metric("Valorisation", f"{last['valuation']:,.0f}")
+    with col4:
+        st.metric("Credit", last["credit"])
+    with col5:
+        st.metric("Round", f"R{last['round']:02.0f} S{last['step']:02.0f}")
+
+    st.markdown("""
+    **Pages disponibles :**
+    - **Superviseur** — Timeline complete, KPIs, alertes, evolution cash/stock/profit
+    - **Pricing** — Marges reelles, prix vs marche, recommandations
+    - **Approvisionnement** — Heatmap stock, taux ecoulement, historique POs
+    - **Distribution** — Ventes par region, allocations, preferences
+    """)
+else:
+    st.warning("Aucune connexion SAP. Configurez votre fichier `.env`.")

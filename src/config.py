@@ -1,14 +1,20 @@
 """Constantes et configuration du jeu ERPsim."""
 
-# --- Produits et regions ---
-PRODUCTS = ["Lait", "Creme", "Yaourt", "Fromage", "Beurre", "Glace"]
+# --- Produits et regions (noms SAP ERPsim) ---
+PRODUCTS = ["Milk", "Cream", "Yoghurt", "Cheese", "Butter", "Ice Cream"]
 REGIONS = ["Nord", "Sud", "Ouest"]
+
+# --- Mapping SAP ---
+MATERIAL_IDS = {
+    "Milk": "LL-T01", "Cream": "LL-T02", "Yoghurt": "LL-T03",
+    "Cheese": "LL-T04", "Butter": "LL-T05", "Ice Cream": "LL-T06",
+}
 
 # --- Preferences regionales (poids relatifs) ---
 REGIONAL_PREFERENCES = {
-    "Nord": {"Lait": 1.5, "Creme": 1.0, "Yaourt": 1.0, "Fromage": 1.0, "Beurre": 1.0, "Glace": 1.5},
-    "Sud": {"Lait": 1.0, "Creme": 1.0, "Yaourt": 1.5, "Fromage": 1.0, "Beurre": 1.0, "Glace": 1.5},
-    "Ouest": {"Lait": 1.0, "Creme": 1.0, "Yaourt": 1.0, "Fromage": 1.5, "Beurre": 1.0, "Glace": 1.0},
+    "Nord": {"Milk": 1.5, "Cream": 1.0, "Yoghurt": 1.0, "Cheese": 1.0, "Butter": 1.0, "Ice Cream": 1.5},
+    "Sud": {"Milk": 1.0, "Cream": 1.0, "Yoghurt": 1.5, "Cheese": 1.0, "Butter": 1.0, "Ice Cream": 1.5},
+    "Ouest": {"Milk": 1.0, "Cream": 1.0, "Yoghurt": 1.0, "Cheese": 1.5, "Butter": 1.0, "Ice Cream": 1.0},
 }
 
 # --- Garde-fous ---

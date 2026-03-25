@@ -69,12 +69,12 @@ class MockODataClient(ODataClient):
     def __init__(self):
         self._round = 0
         self._prices: dict[str, float] = {
-            "Lait": 2.50, "Creme": 3.80, "Yaourt": 2.40,
-            "Fromage": 5.20, "Beurre": 4.10, "Glace": 3.50,
+            "Milk": 24.52, "Cream": 77.60, "Yoghurt": 28.52,
+            "Cheese": 89.15, "Butter": 65.79, "Ice Cream": 47.55,
         }
         self._base_costs: dict[str, float] = {
-            "Lait": 1.20, "Creme": 2.00, "Yaourt": 1.30,
-            "Fromage": 2.80, "Beurre": 2.20, "Glace": 1.80,
+            "Milk": 15.00, "Cream": 50.00, "Yoghurt": 18.00,
+            "Cheese": 55.00, "Butter": 40.00, "Ice Cream": 28.00,
         }
         self._cash = float(STARTING_CASH)
         self._central_stock = 3500
@@ -185,23 +185,171 @@ class MockODataClient(ODataClient):
         )
 
 
-# --- Client OData reel (placeholder) ---
+# --- Mapping SAP ---
+
+STORAGE_TO_REGION = {
+    "03": "Central",
+    "03N": "Nord",
+    "03S": "Sud",
+    "03W": "Ouest",
+}
+
+AREA_TO_REGION = {
+    "North": "Nord",
+    "South": "Sud",
+    "West": "Ouest",
+}
+
+MATERIAL_TO_PRODUCT = {
+    "LL-T01": "Milk",
+    "LL-T02": "Cream",
+    "LL-T03": "Yoghurt",
+    "LL-T04": "Cheese",
+    "LL-T05": "Butter",
+    "LL-T06": "Ice Cream",
+}
+
+
+# --- Client OData reel ---
 
 class RealODataClient(ODataClient):
-    """Client OData reel via PyOData. A completer avec les vrais endpoints."""
+    """Client OData reel connecte a SAP ERPsim."""
 
     def __init__(self, base_url: str, username: str, password: str):
-        self._base_url = base_url
-        self._username = username
-        self._password = password
+        import requests as _requests
+        from requests.auth import HTTPBasicAuth
+        self._base_url = base_url.rstrip("/")
+        self._auth = HTTPBasicAuth(username, password)
+        self._headers = {"Accept": "application/json"}
+        self._session = _requests.Session()
+        self._session.auth = self._auth
+        self._session.headers.update(self._headers)
+        self._session.verify = False
         self._connected = False
+        self._last_error: str | None = None
+        # Disable SSL warnings
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        # Test connection
+        try:
+            r = self._session.get(f"{self._base_url}/Current_Game_Rules?$top=1&$format=json", timeout=10)
+            self._connected = r.status_code == 200
+        except Exception as e:
+            self._last_error = str(e)
+
+    def _get(self, entity: str, params: str = "") -> list[dict]:
+        """GET sur une entite OData, retourne la liste de resultats."""
+        url = f"{self._base_url}/{entity}?$format=json{params}"
+        try:
+            r = self._session.get(url, timeout=15)
+            r.raise_for_status()
+            return r.json().get("d", {}).get("results", [])
+        except Exception as e:
+            self._last_error = str(e)
+            return []
 
     def fetch_data(self) -> ERPSimData:
-        # TODO: Implementer avec PyOData quand on aura acces au $metadata SAP
-        raise NotImplementedError("Connecter PyOData apres acces au $metadata SAP")
+        sales = self._fetch_sales()
+        inventory = self._fetch_inventory()
+        financials = self._fetch_financials()
+
+        # Determiner le round courant
+        round_number = 0
+        if financials:
+            round_number = int(financials.risk_rate)  # placeholder, on le calcule mieux
+        # Prendre le max round des ventes
+        if sales:
+            round_number = max(s.round_number for s in sales)
+
+        return ERPSimData(
+            sales=sales,
+            inventory=inventory,
+            financials=financials,
+            round_number=round_number,
+        )
 
     def is_connected(self) -> bool:
         return self._connected
+
+    @property
+    def last_error(self) -> str | None:
+        return self._last_error
+
+    def _fetch_sales(self) -> list[SalesRecord]:
+        """Recupere les ventes du dernier round."""
+        # Prendre les ventes les plus recentes
+        rows = self._get("Sales", "&$orderby=SIM_ELAPSED_STEPS desc&$top=500")
+        if not rows:
+            return []
+
+        # Trouver le dernier round
+        max_round = max(row["SIM_ROUND"] for row in rows)
+        latest = [r for r in rows if r["SIM_ROUND"] == max_round]
+
+        records = []
+        for row in latest:
+            region = AREA_TO_REGION.get(row.get("AREA", ""), row.get("AREA", ""))
+            product = row.get("MATERIAL_DESCRIPTION", "")
+            records.append(SalesRecord(
+                product=product,
+                region=region,
+                quantity_sold=int(row.get("QUANTITY", 0)),
+                revenue=float(row.get("NET_VALUE", 0)),
+                price=float(row.get("NET_PRICE", 0)),
+                round_number=int(row.get("SIM_ROUND", "0")),
+            ))
+        return records
+
+    def _fetch_inventory(self) -> list[InventoryRecord]:
+        """Recupere le stock actuel via Current_Inventory."""
+        rows = self._get("Current_Inventory")
+        records = []
+        for row in rows:
+            location = STORAGE_TO_REGION.get(
+                row.get("STORAGE_LOCATION", ""), row.get("STORAGE_LOCATION", "")
+            )
+            records.append(InventoryRecord(
+                product=row.get("MATERIAL_DESCRIPTION", ""),
+                location=location,
+                quantity=int(row.get("STOCK", 0)),
+            ))
+        return records
+
+    def _fetch_financials(self) -> FinancialData | None:
+        """Recupere la derniere valorisation."""
+        rows = self._get("Company_Valuation", "&$orderby=SIM_ELAPSED_STEPS desc&$top=1")
+        if not rows:
+            return None
+        row = rows[0]
+        cash = float(row.get("BANK_CASH_ACCOUNT", 0))
+        debt = float(row.get("BANK_LOAN", 0))
+        profit = float(row.get("PROFIT", 0))
+        company_risk = float(row.get("COMPANY_RISK_RATE_PCT", 10))
+        market_risk = float(row.get("MARKET_RISK_RATE_PCT", 7))
+        total_risk = (company_risk + market_risk) / 100.0
+        return FinancialData(
+            cash=cash,
+            debt=debt,
+            credit_rating=row.get("CREDIT_RATING", "?"),
+            valuation=float(row.get("COMPANY_VALUATION", 0)),
+            profit=profit,
+            risk_rate=total_risk,
+        )
+
+    def fetch_current_prices(self) -> dict[str, float]:
+        """Recupere les prix actuels."""
+        rows = self._get("Current_Pricing_Conditions")
+        prices = {}
+        for row in rows:
+            product = row.get("MATERIAL_DESCRIPTION", "")
+            price = float(row.get("PRICE", 0))
+            prices[product] = price
+        return prices
+
+    def fetch_market_data(self) -> list[dict]:
+        """Recupere les donnees du marche (toutes les equipes)."""
+        rows = self._get("Market", "&$orderby=SIM_ROUND desc&$top=200")
+        return rows
 
 
 def get_client(use_mock: bool = True, **kwargs) -> ODataClient:
