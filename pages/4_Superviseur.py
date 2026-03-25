@@ -26,6 +26,7 @@ if refresh:
     load_dotenv()
     from src.data_loader import SAPDataLoader
     from src.analytics import compute_real_margins, compute_stock_heatmap, compute_sales_by_region
+    from src.agents_v2 import run_all_agents
 
     with st.spinner("Chargement SAP + Agents IA..."):
         loader = SAPDataLoader()
@@ -43,16 +44,9 @@ if refresh:
 
         # Lancer les agents IA
         api_key = os.getenv("OPENROUTER_API_KEY", "")
-        agent_results = _run_agents(data, margins, stock_heatmap, sales_region, api_key)
-        st.session_state.agent_results = agent_results
+        st.session_state.agent_results = run_all_agents(data, margins, stock_heatmap, sales_region, api_key)
 
     st.rerun()
-
-
-def _run_agents(data, margins, stock_heatmap, sales_region, api_key):
-    """Lance les 3 agents et retourne leurs recommandations."""
-    from src.agents_v2 import run_all_agents
-    return run_all_agents(data, margins, stock_heatmap, sales_region, api_key)
 
 
 # ============================================================
