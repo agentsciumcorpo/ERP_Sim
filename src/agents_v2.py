@@ -108,18 +108,60 @@ def _run_pricing(data, margins, cash, api_key) -> list[dict]:
             f"contribution={m['contribution']}\n"
         )
 
-    prompt = f"""Tu es l'Agent Prix d'une equipe ERPsim (6 produits laitiers, 3 regions).
+    # Donnees de prix du marche si disponibles
+    market_info = ""
+    if len(data.market) > 0:
+        max_rnd = data.market["round"].max()
+        latest = data.market[data.market["round"] == max_rnd]
+        for prod in PRODUCTS:
+            prod_mkt = latest[latest["product"] == prod]
+            others = prod_mkt[prod_mkt["company"] != "LL"]
+            if len(others) > 0:
+                avg = others["avg_price"].mean()
+                market_info += f"- {prod}: prix moyen concurrents = {avg:.2f}\n"
+        if not market_info:
+            market_info = "Pas de donnees concurrents disponibles (test solo ou Round 1).\n"
+
+    # Variation prix entre rounds
+    price_history = ""
+    if len(data.sales) > 0:
+        rounds = sorted(data.sales["round"].unique())
+        if len(rounds) >= 2:
+            for prod in PRODUCTS:
+                prices_by_round = []
+                for rnd in rounds:
+                    rnd_sales = data.sales[(data.sales["round"] == rnd) & (data.sales["product"] == prod)]
+                    if len(rnd_sales) > 0:
+                        prices_by_round.append((rnd, rnd_sales["price"].mean()))
+                if len(prices_by_round) >= 2:
+                    p0 = prices_by_round[-2][1]
+                    p1 = prices_by_round[-1][1]
+                    q_by_rnd = data.sales[data.sales["product"] == prod].groupby("round")["qty"].sum()
+                    if len(q_by_rnd) >= 2:
+                        q0 = q_by_rnd.iloc[-2]
+                        q1 = q_by_rnd.iloc[-1]
+                        price_history += f"- {prod}: R{int(prices_by_round[-2][0])} prix={p0:.2f} qty={q0} → R{int(prices_by_round[-1][0])} prix={p1:.2f} qty={q1}\n"
+
+    prompt = f"""Tu es l'Agent Prix d'une equipe ERPsim (6 produits laitiers, 3 regions, 5 equipes en competition).
 Recommande les 6 prix pour le prochain round.
 
-METRIQUES:
+METRIQUES PRODUITS:
 {margin_info}
 
-INSIGHTS CLES:
-- Yoghurt et Milk s'ecoulent le mieux (88% et 83%) → on peut monter les prix
-- Cream et Cheese s'ecoulent mal (34% et 36%) → baisser pour accelerer les ventes
-- Butter et Ice Cream sont intermediaires (51% et 61%)
-- Les marges sont serrees (6-9%) → chaque centime compte
-- Variation max 15% par cycle
+PRIX DU MARCHE (concurrents):
+{market_info}
+
+HISTORIQUE PRIX/VOLUMES:
+{price_history if price_history else "Pas assez d'historique pour calculer l'elasticite."}
+
+REGLES STRICTES DE PRICING:
+1. PRUDENCE: On ne connait PAS l'elasticite-prix reelle. On n'a pas assez de data pour savoir comment les clients reagissent.
+2. VARIATION MAX 2-3% par round. JAMAIS plus de 5% sauf situation extreme. Le 15% est une limite technique, PAS un objectif.
+3. En competition, si on monte trop les concurrents prennent nos clients.
+4. Observer l'impact avant de continuer — hausse progressive, pas agressive.
+5. Produits a bon ecoulement (>75%): hausse de +1 a +3% pour tester l'elasticite.
+6. Produits a mauvais ecoulement (<45%): baisse de -2 a -4% pour stimuler la demande.
+7. Produits intermediaires (45-75%): stable ou +/-1%.
 
 Pour chaque produit, donne: prix recommande, variation %, confiance (haute/moyenne/basse), raisonnement (1 phrase).
 
